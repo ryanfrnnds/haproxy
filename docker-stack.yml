@@ -1,0 +1,43 @@
+version: "3.9"
+
+services:
+  api:
+    image: helloworld-api:latest           # construa/taggue sua imagem com esse nome
+    deploy:
+      replicas: 2
+      endpoint_mode: dnsrr        # 1 A-record por réplica
+      resources:
+        limits:                   # ← isola consumo por contêiner
+          cpus: "2.0"             # 1 vCPU “virtual”
+          memory: 512M   
+    environment:
+      - API_NAME={{.Task.Slot}}
+      - AGENT_PORT=9999                   # explícito, caso você mude no futuro
+    networks:
+      - poc-net
+    expose:                               # só informativo; as portas já ficam acessíveis na overlay
+      - "5000"
+      - "9999"
+
+  haproxy:
+    image: haproxy:2.9
+    configs:
+      - source: haproxy_cfg
+        target: /usr/local/etc/haproxy/haproxy.cfg
+    ports:
+      - "8080:80"                         # tráfego externo → frontend http-in
+      - "8404:8404"                       # painel /stats
+    networks:
+      - poc-net
+    deploy:
+      placement:
+        constraints:
+          - node.role == manager          # só roda no manager (opcional)
+
+configs:
+  haproxy_cfg:
+    file: ./haproxy/haproxy.cfg
+
+networks:
+  poc-net:
+    driver: overlay
