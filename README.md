@@ -1,113 +1,101 @@
-# HAProxy-POC-SWARM
+# POC — Balanceamento Dinâmico com HAProxy + Docker Swarm
 
-> **Goal:** Demonstrate **dynamic, resource-aware load‑balancing** with  
-> Docker Swarm + HAProxy 2.9 + a tiny Flask API that reports its own CPU/RAM
-> health through an **agent‑check** on port 9999.
-
----
-
-## 1 • What you’ll run
-
-| Component | Image / Path | Role |
-|-----------|--------------|------|
-| **API container** | `helloworld-api:latest` (`/api/*.py`) | Flask “Hello World”, plus `agent_tcp.py` (scores node health → HAProxy). |
-| **HAProxy** | `haproxy:2.9` | Front‑end on **:80**, `/stats` on **:8404**. Balances between API replicas using agent weight. |
-| **Docker Swarm** | local Desktop | Two replicas (`replicas: 2`, editable in *docker-stack.yml*). |
-
-**CPU thresholds**
-
-* `CPU ≥ 80 %` → replica goes **MAINT** (`maint 0%`) – HAProxy sends 0 requests.  
-* `CPU ≤ 60 %` → replica returns **READY NN %** – weight set to *NN*.
+> Demonstração de **balanceamento de carga sensível a recursos**, usando
+> HAProxy 2.9, Docker Swarm e uma API Flask que publica sua própria
+> “saúde” via *agent‑check* TCP (porta 9999).
 
 ---
 
-## 2 • Quick start (local Docker Desktop)
+## 1 • Componentes
+
+| Serviço | Imagem / Caminho | Papel |
+|---------|------------------|-------|
+| **API** | `helloworld-api:latest` (`/api/*.py`) | Rota `GET /` de teste e `agent_tcp.py`, que calcula CPU/RAM do contêiner e envia para o HAProxy. |
+| **HAProxy** | `haproxy:2.9` | Escuta **:80**; painel `/stats` em **:8404**. Ajusta o peso dos back‑ends com base no agente. |
+| **Swarm** | Docker Desktop | 2 réplicas (alterável em *docker-stack.yml*). |
+
+### Lógica de thresholds
+
+| Situação do contêiner | Agente devolve | Estado no HAProxy |
+|-----------------------|----------------|-------------------|
+| CPU **≥ 80 %** | `maint 0%` | Linha fica **MAINT** (não recebe tráfego). |
+| CPU **≤ 60 %** | `ready NN%` | Volta para **UP** com peso `NN`. |
+
+---
+
+## 2 • Subindo localmente (Docker Desktop)
 
 ```bash
-git clone <this-repo-url>
+git clone <repo>
 cd HAProxy-POC-SWARM
 
-# 1) Enable Swarm
+# Inicie o Swarm (se ainda não estiver ativo)
 docker swarm init
 
-# 2) Build API image
+# Construa a imagem da API
 docker build -t helloworld-api:latest ./api
 
-# 3) Deploy stack
+# Suba a stack
 docker stack deploy -c docker-stack.yml poc
-docker service ls             # watch services start
 ```
 
-### Dashboards
+*Abra em seguida*  
 
-| URL | What you’ll see |
-|-----|-----------------|
-| `http://localhost:8404/stats` | HAProxy live stats (no auth for POC). |
-| `http://localhost/`           | “Hello World from &lt;slot&gt;!”. |
+* Painel HAProxy: <http://localhost:8404/stats>  
+* Rota de teste:  <http://localhost/>
 
 ---
 
-## 3 • Try dynamic weighting
+## 3 • Teste de balanceamento
 
-```bash
-# find replica 1
-docker service ps poc_api
+1. **Descubra o container da réplica 1**
 
-# stress only replica 1
-docker exec -it <container‑ID>   stress-ng --cpu 4 --vm 4 --vm-bytes 75% --timeout 60s
-```
+   ```bash
+   docker service ps poc_api
+   ```
 
-Open `/stats`; `api1` flips to **MAINT** (Wght 0/0) and all traffic goes to `api2`.
-When CPU falls ≤ 60 %, `api1` returns to **READY** and traffic normalizes.
+2. **Estresse só essa réplica**
+
+   ```bash
+   CID=$(docker ps --filter name=poc_api.1 --format '{{.ID}}')
+   docker exec -it $CID stress-ng --cpu 4 --vm 4 --vm-bytes 75% --timeout 90s
+   ```
+
+3. **Acompanhe no /stats**
+
+   * `api1` vai para **MAINT / Wght 0/0**  
+   * Todo tráfego será redirecionado para `api2`  
+   * Após o stress, `api1` volta para **ready** e o peso sobe.
 
 ---
 
-## 4 • Repo layout
+## 4 • Estrutura do projeto
 
 ```
 api/
 ├─ agent_api.py
-├─ agent_metrics.py
 ├─ agent_tcp.py
+├─ agent_metrics.py
 ├─ entrypoint.sh
 ├─ requirements.txt
 └─ Dockerfile
+
 haproxy/
 └─ haproxy.cfg
+
 docker-stack.yml
 README.md
 ```
 
 ---
 
-## 5 • Key HAProxy backend
-
-```haproxy
-backend apis
-    server-template api 1-10 tasks.api:5000 weight 100 \
-        agent-check agent-port 9999 agent-inter 2s \
-        check inter 2s rise 2 fall 3
-```
-
-`ready 91%` → Wght 91   |   `maint 0%` → server in MAINT (no LB).
-
----
-
-## 6 • Tear down
+## 5 • Desligando
 
 ```bash
 docker stack rm poc
-docker swarm leave --force
+docker swarm leave --force   # opcional
 ```
 
 ---
 
-## 7 • Troubleshooting
-
-| Symptom | Fix |
-|---------|-----|
-| Wght stuck at 100/100 | Ensure :9999 replies “ready NN%” – test with `cat /dev/tcp/IP/9999`. |
-| Replica stays MAINT | CPU still above 60 %; wait or lower thresholds. |
-| ImportError agent_metrics | Ensure file copied into image; rebuild `--no-cache`. |
-
-Made with ☕ by &lt;your‑team&gt;.
+> Feito com ☕ e muita curiosidade.!
