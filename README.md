@@ -1,88 +1,71 @@
-# HAProxy + Spring Boot com Balanceamento por Uso de CPU/Memória
+# Projeto de POC - HAProxy com Agente Dinâmico
 
-Este projeto é uma POC completa de balanceamento de carga com **HAProxy + agent-check TCP**, utilizando:
-
-- Spring Boot (Java 11)
-- Docker Swarm
-- HAProxy com `agent-check` baseado em uso de CPU/Memória
-- Imagem base customizada com agente Python monitorando o container
+Este projeto é uma prova de conceito (POC) que demonstra como utilizar o HAProxy em conjunto com um agente customizado para balanceamento de carga baseado em consumo de CPU. A estrutura está dividida em três diretórios principais:
 
 ---
 
-## 📁 Estrutura do Projeto
+## 📁 `infra/`
 
-```
-haproxy-springboot-agent-poc/
-├── springboot-api/             # Projeto Java com Jib
-├── java11-agent-base/          # Imagem base com agente supervisado
-└── infra/                      # Infraestrutura com Docker Swarm + HAProxy
-```
+Contém os arquivos de configuração para subir o ambiente completo com Docker Swarm:
 
----
-
-## 🚀 Como rodar localmente
-
-### 1. Construa a imagem base com agente
-```bash
-cd java11-agent-base
-docker build -t ryanfrnnds/java11-agent-base:latest .
-docker push ryanfrnnds/java11-agent-base:latest  # se for usar no cluster
-```
-
-### 2. Construa a imagem da sua API com Jib
-```bash
-cd springboot-api
-mvn compile jib:dockerBuild -Dimage=ryanfrnnds/springboot-api:latest
-```
-
-### 3. Inicialize o Swarm (se necessário)
-```bash
-docker swarm init
-```
-
-### 4. Suba a stack com HAProxy e as APIs
-```bash
-cd infra
-docker stack deploy -c docker-compose.yml springtest
-```
+- `docker-compose.yml`: orquestra os serviços (HAProxy, APIs, agentes).
+- `haproxy.cfg`: configuração dinâmica do HAProxy com suporte a `agent-check` via porta TCP 9999.
+- Rede interna e volumes são definidos aqui.
 
 ---
 
-## 🔁 Como funciona
+## 📁 `java11-agent-base/`
 
-- O `agent_tcp.py` embutido na imagem monitora uso de CPU/MEM do container.
-- Se o uso de CPU passar de 80%, o HAProxy desativa a instância com `maint`.
-- Quando a carga cai para menos de 60%, a instância volta a receber tráfego.
-- O HAProxy se comunica com o agente via `agent-check` na porta `9999`.
+Imagem base Docker para aplicações Spring Boot com suporte a supervisord e agente customizado:
+
+- **Base:** `eclipse-temurin:11-jdk`
+- Instala Python 3, Supervisor e o módulo `psutil`.
+- Copia o agente `agent_tcp.py` e configura o `supervisord.conf` para iniciar tanto o agente quanto a aplicação Java.
+- **Finalidade:** reutilizável como `FROM` em outras imagens via Jib.
 
 ---
 
-## 🔬 Testar o balanceamento
+## 📁 `springboot-api/`
 
-1. Acesse:
+Exemplo funcional de uma API Spring Boot empacotada com o plugin **Jib**:
+
+- Utiliza a imagem `ryanfrnnds/jib-java11-agent-base:latest` como base.
+- Não define `entrypoint`, pois delega isso para o supervisord da imagem base.
+- **Aplicação demo**: uma API minimalista configurada para rodar junto ao `agent_tcp.py` no mesmo container.
+
+---
+
+## Como usar
+
+1. Compile e gere a imagem base:
    ```bash
-   curl http://localhost/hello
+   docker build -t ryanfrnnds/jib-java11-agent-base:latest ./java11-agent-base
    ```
 
-2. Simule carga:
+2. Gere a imagem da API usando Jib:
    ```bash
-   curl http://localhost/cpu
+   mvn clean compile jib:dockerBuild -Dimage=ryanfrnnds/springboot-api:latest
    ```
 
-3. Acesse o painel do HAProxy:
-   ```
-   http://localhost:8404/stats
+3. Suba a stack completa:
+   ```bash
+   docker stack deploy -c docker-compose.yml haproxy-poc
    ```
 
 ---
 
-## 🧱 Requisitos
+## Observações
 
-- Docker + Docker Swarm
-- Maven 3.8+
-- Java 11
-- Internet para baixar dependências e imagens base
+- O HAProxy usa `agent-check` para decidir se uma instância deve ou não receber tráfego.
+- O agente `agent_tcp.py` responde na porta `9999` com "up 100" ou "down 0", dependendo da carga da CPU.
+- O supervisord garante que, se a aplicação Spring ou o agente caírem, ambos serão reiniciados automaticamente.
 
 ---
 
-Projeto desenvolvido como POC para balanceamento inteligente de APIs containerizadas com HAProxy.
+## Logs
+
+Para que o log da API continue sendo visível no stdout (ex: para ferramentas como Graylog via Docker logging driver), certifique-se de que o `java` seja iniciado em primeiro plano e seus logs sejam redirecionados corretamente.
+
+---
+
+© ryanfrnnds • 2025
