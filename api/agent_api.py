@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from flask import Flask
+import socket
 import os
 from agent_metrics import cpu_pct, mem_pct
 
@@ -16,7 +17,9 @@ def hello():
 
 @app.route("/health")
 def health():
-    return f"{calc_free_score()}%\n", 200
+    score = calc_free_score()
+    hostname = socket.gethostname()
+    return f"{score}% name={NAME} host={hostname}\n", 200
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))
