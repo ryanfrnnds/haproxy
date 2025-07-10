@@ -1,0 +1,53 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.example</groupId>
+    <artifactId>springboot-agent-poc</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <packaging>jar</packaging>
+
+    <name>springboot-agent-poc</name>
+    <description>Spring Boot 2 com Agente HAProxy</description>
+
+    <properties>
+        <java.version>11</java.version>
+        <spring.boot.version>2.6.2</spring.boot.version>
+        <maven.compiler.source>11</maven.compiler.source>
+        <maven.compiler.target>11</maven.compiler.target>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+            <version>${spring.boot.version}</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- Plugin do Spring Boot (usado para build local e testes) -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <version>${spring.boot.version}</version>
+            </plugin>
+
+            <plugin>
+                <groupId>com.google.cloud.tools</groupId>
+                <artifactId>jib-maven-plugin</artifactId>
+                <version>3.4.0</version>
+                <configuration>
+                    <from>
+                    <image>ryanfrnnds/jib-java11-agent-base:latest</image>
+                    </from>
+                    <container>
+                    <entrypoint>INHERIT</entrypoint>
+                    </container>
+                </configuration>
+                </plugin>
+        </plugins>
+    </build>
+</project>

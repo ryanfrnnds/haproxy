@@ -1,101 +1,88 @@
-# POC — Balanceamento Dinâmico com HAProxy + Docker Swarm
+# HAProxy + Spring Boot com Balanceamento por Uso de CPU/Memória
 
-> Demonstração de **balanceamento de carga sensível a recursos**, usando
-> HAProxy 2.9, Docker Swarm e uma API Flask que publica sua própria
-> “saúde” via *agent‑check* TCP (porta 9999).
+Este projeto é uma POC completa de balanceamento de carga com **HAProxy + agent-check TCP**, utilizando:
 
----
-
-## 1 • Componentes
-
-| Serviço | Imagem / Caminho | Papel |
-|---------|------------------|-------|
-| **API** | `helloworld-api:latest` (`/api/*.py`) | Rota `GET /` de teste e `agent_tcp.py`, que calcula CPU/RAM do contêiner e envia para o HAProxy. |
-| **HAProxy** | `haproxy:2.9` | Escuta **:80**; painel `/stats` em **:8404**. Ajusta o peso dos back‑ends com base no agente. |
-| **Swarm** | Docker Desktop | 2 réplicas (alterável em *docker-stack.yml*). |
-
-### Lógica de thresholds
-
-| Situação do contêiner | Agente devolve | Estado no HAProxy |
-|-----------------------|----------------|-------------------|
-| CPU **≥ 80 %** | `maint 0%` | Linha fica **MAINT** (não recebe tráfego). |
-| CPU **≤ 60 %** | `ready NN%` | Volta para **UP** com peso `NN`. |
+- Spring Boot (Java 11)
+- Docker Swarm
+- HAProxy com `agent-check` baseado em uso de CPU/Memória
+- Imagem base customizada com agente Python monitorando o container
 
 ---
 
-## 2 • Subindo localmente (Docker Desktop)
+## 📁 Estrutura do Projeto
 
+```
+haproxy-springboot-agent-poc/
+├── springboot-api/             # Projeto Java com Jib
+├── java11-agent-base/          # Imagem base com agente supervisado
+└── infra/                      # Infraestrutura com Docker Swarm + HAProxy
+```
+
+---
+
+## 🚀 Como rodar localmente
+
+### 1. Construa a imagem base com agente
 ```bash
-git clone <repo>
-cd HAProxy-POC-SWARM
+cd java11-agent-base
+docker build -t ryanfrnnds/java11-agent-base:latest .
+docker push ryanfrnnds/java11-agent-base:latest  # se for usar no cluster
+```
 
-# Inicie o Swarm (se ainda não estiver ativo)
+### 2. Construa a imagem da sua API com Jib
+```bash
+cd springboot-api
+mvn compile jib:dockerBuild -Dimage=ryanfrnnds/springboot-api:latest
+```
+
+### 3. Inicialize o Swarm (se necessário)
+```bash
 docker swarm init
-
-# Construa a imagem da API
-docker build -t helloworld-api:latest ./api
-
-# Suba a stack
-docker stack deploy -c docker-stack.yml poc
 ```
 
-*Abra em seguida*  
-
-* Painel HAProxy: <http://localhost:8404/stats>  
-* Rota de teste:  <http://localhost/>
-
----
-
-## 3 • Teste de balanceamento
-
-1. **Descubra o container da réplica 1**
-
-   ```bash
-   docker service ps poc_api
-   ```
-
-2. **Estresse só essa réplica**
-
-   ```bash
-   CID=$(docker ps --filter name=poc_api.1 --format '{{.ID}}')
-   docker exec -it $CID stress-ng --cpu 4 --vm 4 --vm-bytes 75% --timeout 90s
-   ```
-
-3. **Acompanhe no /stats**
-
-   * `api1` vai para **MAINT / Wght 0/0**  
-   * Todo tráfego será redirecionado para `api2`  
-   * Após o stress, `api1` volta para **ready** e o peso sobe.
-
----
-
-## 4 • Estrutura do projeto
-
-```
-api/
-├─ agent_api.py
-├─ agent_tcp.py
-├─ agent_metrics.py
-├─ entrypoint.sh
-├─ requirements.txt
-└─ Dockerfile
-
-haproxy/
-└─ haproxy.cfg
-
-docker-stack.yml
-README.md
-```
-
----
-
-## 5 • Desligando
-
+### 4. Suba a stack com HAProxy e as APIs
 ```bash
-docker stack rm poc
-docker swarm leave --force   # opcional
+cd infra
+docker stack deploy -c docker-compose.yml springtest
 ```
 
 ---
 
-> Feito com ☕ e muita curiosidade.!
+## 🔁 Como funciona
+
+- O `agent_tcp.py` embutido na imagem monitora uso de CPU/MEM do container.
+- Se o uso de CPU passar de 80%, o HAProxy desativa a instância com `maint`.
+- Quando a carga cai para menos de 60%, a instância volta a receber tráfego.
+- O HAProxy se comunica com o agente via `agent-check` na porta `9999`.
+
+---
+
+## 🔬 Testar o balanceamento
+
+1. Acesse:
+   ```bash
+   curl http://localhost/hello
+   ```
+
+2. Simule carga:
+   ```bash
+   curl http://localhost/cpu
+   ```
+
+3. Acesse o painel do HAProxy:
+   ```
+   http://localhost:8404/stats
+   ```
+
+---
+
+## 🧱 Requisitos
+
+- Docker + Docker Swarm
+- Maven 3.8+
+- Java 11
+- Internet para baixar dependências e imagens base
+
+---
+
+Projeto desenvolvido como POC para balanceamento inteligente de APIs containerizadas com HAProxy.
