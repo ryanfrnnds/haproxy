@@ -1,0 +1,41 @@
+version: "3.9"
+
+services:
+  api:
+    image: ryanfrnnds/springboot-api:latest
+    deploy:
+      mode: replicated
+      replicas: 2
+      restart_policy:
+        condition: any
+    environment:
+      AGENT_PORT: 9999
+      API_NAME: springboot-api
+    networks:
+      - internal
+    ports:
+      - "8080"
+
+  haproxy:
+    image: haproxy:2.9
+    configs:
+      - source: haproxy_cfg
+        target: /usr/local/etc/haproxy/haproxy.cfg
+    ports:
+      - "80:80"
+      - "8404:8404"
+    networks:
+      - internal
+    deploy:
+      mode: global
+      restart_policy:
+        condition: on-failure
+
+networks:
+  internal:
+    driver: overlay
+
+configs:
+  haproxy_cfg:
+    file: ./haproxy.cfg
+
